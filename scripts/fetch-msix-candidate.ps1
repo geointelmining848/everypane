@@ -12,7 +12,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not read the release.' }
 $release = $json | ConvertFrom-Json
 if (-not $release.draft -or $release.tag_name -notlike 'msix-prototype-*') { throw 'Use an unpublished MSIX prototype.' }
 New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
-foreach ($version in @('0.4.1.0', '0.4.2.0')) {
+foreach ($version in @('1.0.0.0', '1.0.1.0')) {
     $name = "Everypane-$version-x64.msix"
     $asset = @($release.assets | Where-Object { $_.name -ceq $name })
     if ($asset.Count -ne 1) { throw "Missing or duplicate asset: $name" }
