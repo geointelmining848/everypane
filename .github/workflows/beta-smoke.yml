@@ -1,0 +1,55 @@
+name: Check Windows beta installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Numeric ID of the draft beta release
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  install:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    # Draft assets require push access. Results are added to the same draft.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fetch candidate from the draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: ./scripts/fetch-beta-candidate.ps1 -ReleaseId $env:RELEASE_ID -OutputDirectory "$env:RUNNER_TEMP\beta"
+      - name: Check installation, updates, settings, and removal
+        shell: pwsh
+        run: ./scripts/win-beta-smoke.ps1 -Bundle "$env:RUNNER_TEMP\beta\candidate" -PreviousSetup "$env:RUNNER_TEMP\beta\previous-setup.exe" -OutputDirectory "$env:RUNNER_TEMP\beta-results"
+      - name: Keep the results on the draft release
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_ID -notmatch '^\d+$') { throw 'Invalid release ID.' }
+          $report = "$env:RUNNER_TEMP\beta-results\smoke-results.json"
+          if (Test-Path -LiteralPath $report) {
+            Get-Content -LiteralPath $report
+            Get-Content -LiteralPath $report | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path -LiteralPath "$env:RUNNER_TEMP\beta-results") {
+            $name = "beta-smoke-windows-2025-$env:GITHUB_RUN_ID.zip"
+            $path = Join-Path $env:RUNNER_TEMP $name
+            Compress-Archive -Path "$env:RUNNER_TEMP\beta-results\*" -DestinationPath $path
+            $release = gh api "repos/geointelmining848/everypane/releases/$env:RELEASE_ID" | ConvertFrom-Json
+            if (-not $release.draft) { throw 'Results must stay on a draft release.' }
+            gh release upload $release.tag_name $path --repo geointelmining848/everypane
+            if ($LASTEXITCODE -ne 0) { throw 'Could not save the results.' }
+          }
