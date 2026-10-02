@@ -28,7 +28,7 @@ jobs:
         run: ./scripts/fetch-msix-candidate.ps1 -ReleaseId $env:RELEASE_ID -OutputDirectory "$env:RUNNER_TEMP\msix"
       - name: Test installed package, upgrade, and removal
         shell: pwsh
-        run: ./scripts/win-msix-smoke.ps1 -Package "$env:RUNNER_TEMP\msix\Everypane-0.4.1.0-x64.msix" -UpgradePackage "$env:RUNNER_TEMP\msix\Everypane-0.4.2.0-x64.msix" -OutputDirectory "$env:RUNNER_TEMP\msix-results"
+        run: ./scripts/win-msix-smoke.ps1 -Package "$env:RUNNER_TEMP\msix\Everypane-1.0.0.0-x64.msix" -UpgradePackage "$env:RUNNER_TEMP\msix\Everypane-1.0.1.0-x64.msix" -OutputDirectory "$env:RUNNER_TEMP\msix-results"
       - name: Save test evidence to the draft
         if: always()
         shell: pwsh
