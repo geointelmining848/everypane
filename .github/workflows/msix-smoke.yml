@@ -1,0 +1,54 @@
+name: Check Everypane MSIX prototype
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Numeric ID of the unpublished MSIX test release
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  install:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Fetch test packages
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: ./scripts/fetch-msix-candidate.ps1 -ReleaseId $env:RELEASE_ID -OutputDirectory "$env:RUNNER_TEMP\msix"
+      - name: Test installed package, upgrade, and removal
+        shell: pwsh
+        run: ./scripts/win-msix-smoke.ps1 -Package "$env:RUNNER_TEMP\msix\Everypane-0.4.1.0-x64.msix" -UpgradePackage "$env:RUNNER_TEMP\msix\Everypane-0.4.2.0-x64.msix" -OutputDirectory "$env:RUNNER_TEMP\msix-results"
+      - name: Save test evidence to the draft
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_ID -notmatch '^\d+$') { throw 'Invalid release ID.' }
+          $report = "$env:RUNNER_TEMP\msix-results\smoke-results.json"
+          if (Test-Path -LiteralPath $report) {
+            Get-Content -LiteralPath $report
+            Get-Content -LiteralPath $report | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+          }
+          if (Test-Path -LiteralPath "$env:RUNNER_TEMP\msix-results") {
+            $name = "msix-smoke-windows-2025-$env:GITHUB_RUN_ID.zip"
+            $path = Join-Path $env:RUNNER_TEMP $name
+            Compress-Archive -Path "$env:RUNNER_TEMP\msix-results\*" -DestinationPath $path
+            $release = gh api "repos/geointelmining848/everypane/releases/$env:RELEASE_ID" | ConvertFrom-Json
+            if (-not $release.draft -or $release.tag_name -notlike 'msix-prototype-*') { throw 'Use a prototype draft.' }
+            gh release upload $release.tag_name $path --repo geointelmining848/everypane
+            if ($LASTEXITCODE -ne 0) { throw 'Could not save test evidence.' }
+          }
