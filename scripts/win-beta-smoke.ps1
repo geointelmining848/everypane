@@ -96,7 +96,10 @@ function Assert-Settings {
 function Uninstall-TestApp {
     Run-AppProcess $updater '--silent uninstall' 'uninstall'
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
-    while ((Test-Path -LiteralPath $exe) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
+    # Velopack removes its own directory through delayed cleanup after Update.exe exits.
+    # Reinstalling before that finishes lets the old cleanup remove the new installation.
+    while ((Test-Path -LiteralPath $installRoot) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
+    Assert-That (-not (Test-Path -LiteralPath $installRoot)) 'Uninstall did not finish removing the installation directory.'
     Assert-That (-not (Test-Path -LiteralPath $exe)) 'Uninstall left the application installed.'
     Assert-That (-not (Test-Path -LiteralPath $shortcut)) 'Uninstall left the Start menu shortcut.'
     Assert-That (@(Get-AppRegistration).Count -eq 0) 'Uninstall left the Apps registration.'
