@@ -93,6 +93,18 @@ function Assert-Settings {
         Assert-That ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $savedHashes[$name]) "Settings changed: $name"
     }
 }
+function Wait-UpdateCompletion {
+    $deadline = [DateTime]::UtcNow.AddSeconds(90)
+    do {
+        # The manifest changes before the updater finishes hooks, cleanup, and its restart.
+        # A second app started during that interval can be stopped by the updater.
+        $running = @(Get-Process -Name Everypane, Update -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($installRoot + '\', [StringComparison]::OrdinalIgnoreCase) })
+        if ($running.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw 'The updater or its restarted app did not finish.'
+}
 function Uninstall-TestApp {
     Run-AppProcess $updater '--silent uninstall' 'uninstall'
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -169,6 +181,7 @@ try {
     Run-AppProcess $exe '--update-now' 'automatic-upgrade'
     $deadline = [DateTime]::UtcNow.AddSeconds(90)
     while ((Installed-Version) -ne $manifest.version -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 250 }
+    Wait-UpdateCompletion
     Assert-Installed $manifest.version
     Run-AppProcess $exe '--update-now' 'check-current-version'
     Assert-Settings
@@ -189,6 +202,10 @@ try {
     $report.error = $_.Exception.Message
     throw
 } finally {
+    $updateLog = Join-Path $env:LOCALAPPDATA 'velopack\velopack_Everypane.log'
+    if (Test-Path -LiteralPath $updateLog) {
+        Copy-Item -LiteralPath $updateLog -Destination (Join-Path $OutputDirectory 'updater.log') -ErrorAction Continue
+    }
     $env:EVERYPANE_UPDATE_SOURCE = $savedUpdateSource
     $env:EVERYPANE_TRACE = $savedTrace
     $env:EXPLORER_RENDER = $savedRenderer
