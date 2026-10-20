@@ -57,7 +57,9 @@ function Assert-SigningPreservedPayload([string]$Original, [string]$Signed) {
             }
         }
         foreach ($entry in $after.Entries) {
-            if ($entry.FullName -ne 'AppxSignature.p7x' -and -not $before.GetEntry($entry.FullName)) {
+            # SignTool adds the signature and the desktop code-integrity catalog.
+            if ($entry.FullName -notin @('AppxSignature.p7x', 'AppxMetadata/CodeIntegrity.cat') -and
+                -not $before.GetEntry($entry.FullName)) {
                 throw "Signing added an unexpected file: $($entry.FullName)"
             }
         }
