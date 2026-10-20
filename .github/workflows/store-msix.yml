@@ -1,0 +1,50 @@
+name: Check Everypane Store MSIX
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Numeric ID of the unpublished Store candidate
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Validate the production package on a disposable runner
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: ./scripts/store-msix-validate.ps1 -ReleaseId $env:RELEASE_ID -OutputDirectory "$env:RUNNER_TEMP\store-results"
+      - name: Keep reports on the unpublished draft
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RELEASE_ID -notmatch '^\d+$') { throw 'Invalid release ID.' }
+          $results = "$env:RUNNER_TEMP\store-results"
+          if (Test-Path -LiteralPath $results) {
+            $report = Join-Path $results 'store-validation.json'
+            if (Test-Path -LiteralPath $report) {
+              Get-Content -LiteralPath $report | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+            }
+            $path = Join-Path $env:RUNNER_TEMP "store-msix-windows-2025-$env:GITHUB_RUN_ID.zip"
+            Compress-Archive -Path "$results\*" -DestinationPath $path
+            $release = gh api "repos/geointelmining848/everypane/releases/$env:RELEASE_ID" | ConvertFrom-Json
+            if (-not $release.draft -or $release.tag_name -notlike 'msix-store-candidate-*') { throw 'Use a Store candidate draft.' }
+            gh release upload $release.tag_name $path --repo geointelmining848/everypane
+            if ($LASTEXITCODE -ne 0) { throw 'Could not save test evidence.' }
+          }
