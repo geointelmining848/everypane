@@ -121,8 +121,19 @@ try {
     & $appcert test -appxpackagepath $signedPackages[0] -reportoutputpath $certReport
     $report.certificationKitExitCode = $LASTEXITCODE
     if (-not (Test-Path -LiteralPath $certReport)) { throw 'Certification Kit produced no report.' }
-    $report.certificationKit = 'report-created-review-required'
-    if ($LASTEXITCODE -ne 0) { throw 'Review the Certification Kit report for failures.' }
+    [xml]$certification = Get-Content -LiteralPath $certReport -Raw
+    $tests = @($certification.SelectNodes('//TEST'))
+    $required = @($tests | Where-Object OPTIONAL -EQ 'FALSE')
+    $report.certificationKitOverall = $certification.REPORT.OVERALL_RESULT
+    $report.requiredTests = $required.Count
+    $report.optionalFindings = @($tests | Where-Object { $_.OPTIONAL -eq 'TRUE' -and $_.RESULT.InnerText -ne 'PASS' } |
+        ForEach-Object { @{ name = $_.NAME; result = $_.RESULT.InnerText; messages = @($_.MESSAGES.MESSAGE | ForEach-Object TEXT) } })
+    if ($report.certificationKitExitCode -ne 0 -or $certification.REPORT.PARTIAL_RUN -ne 'FALSE' -or
+        $required.Count -eq 0 -or @($required | Where-Object { $_.RESULT.InnerText -ne 'PASS' }).Count -gt 0) {
+        $report.certificationKit = 'required-checks-not-passed'
+        throw 'Review the Certification Kit report for incomplete or unsuccessful required checks.'
+    }
+    $report.certificationKit = 'required-tests-passed'
     $report.status = 'passed'
 } catch {
     $failure = $_.Exception.ToString()
